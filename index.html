@@ -17,113 +17,98 @@
 <button id="next-btn">Next</button>
 
 <script>
-// Example equation data
-// null = missing coefficient
-const equations = [
-  { reactants: ["NaCrO2", "Br2", "NaOH"], products: ["Na2CrO4", "NaBr", "H2O"], coefficients: [null,null,null,null,null,null], correct: [2,3,8,2,6,4] },
-  { reactants: ["Cl2", "NaOH"], products: ["NaCl", "NaOCl", "H2O"], coefficients: [null,null,null,null,null,null], correct: [1,2,1,1,1,1] },
-  { reactants: ["KMnO4","Na2SO3","H2O"], products: ["MnO2","Na2SO4","KOH"], coefficients: [null,null,null,null,null,null], correct: [2,3,1,2,3,2] }
-];
-
+// The raw CSV data (truncated for brevity, but the parser handles your full format)
+fetch('question.csv')
+  .then(response => response.text())
+  .then(csvText => {
+    equations = parseCSV(csvText);
+    nextEquation();
+  });
+let equations = [];
 let currentEquation = null;
 
-// Render an equation
+// Parse the CSV into the game format
+function parseCSV(csv) {
+  const lines = csv.split('\n').slice(1); // Skip header
+  return lines.map(line => {
+    const cols = line.split(',');
+    if (cols.length < 20) return null;
+
+    // Filter out empty strings and "?" from reactants/products
+    const reactants = cols.slice(0, 5).map(s => s.replace('?', '').trim()).filter(s => s && s !== '→');
+    const products = cols.slice(5, 10).map(s => s.replace('?', '').trim()).filter(s => s && s !== '→');
+    
+    // Get coefficients: Reactant Side (A-D) and Product Side (F-I)
+    const rawCorrect = [cols[10], cols[11], cols[12], cols[13], cols[15], cols[16], cols[17], cols[18]];
+    const correct = rawCorrect.map(c => parseInt(c)).filter(c => !isNaN(c));
+    
+    const difficulty = parseFloat(cols[cols.length - 1]);
+
+    return {
+      reactants,
+      products,
+      correct,
+      difficulty,
+      coefficients: new Array(correct.length).fill(null)
+    };
+  }).filter(eq => eq !== null);
+}
+
 function renderEquation(eq) {
   const container = document.getElementById('equation-container');
   container.innerHTML = '';
 
-  // Randomly decide which missing coefficients to show
   const totalCoeffs = eq.correct.length;
   const shownIndices = new Set();
+  
+  // LOGIC: Easy (<=7) = reveal Total-2 | Medium (7-10) = reveal Total-3 | Difficult (>10) = reveal Total-4
+  let showCount = 0;
+  if (eq.difficulty <= 7) {
+    showCount = totalCoeffs - 2; // Easy
+  } else if (eq.difficulty <= 10) {
+    showCount = totalCoeffs - 3; // Medium (6–10 overlap resolved)
+  } else {
+    showCount = totalCoeffs - 4; // Difficult (>10 fallback)
+  }
+  showCount = Math.max(1, showCount); // Ensure at least 1 is shown or 1 is hidden
 
-  // Only pick from missing coefficients (null in coefficients)
-  const missingIndices = [];
-  for (let i = 0; i < totalCoeffs; i++) if (eq.coefficients[i] === null) missingIndices.push(i);
-
-  const showCount = Math.floor(Math.random() * missingIndices.length) + 1; // show at least 1
   while (shownIndices.size < showCount) {
-    const pick = missingIndices[Math.floor(Math.random() * missingIndices.length)];
+    const pick = Math.floor(Math.random() * totalCoeffs);
     shownIndices.add(pick);
   }
 
-  // Render reactants/products
   const fragment = document.createDocumentFragment();
 
-//  function renderSide(components, startIdx) {
-//    components.forEach((comp,i) => {
-//      const idx = startIdx + i;
-//      if (eq.coefficients[idx] !== null) {
-//        fragment.append(`${eq.coefficients[idx]} `);
-//      } else if (shownIndices.has(idx)) {
-//        fragment.append(`${eq.correct[idx]} `);
-//      } else {
-//        const input = document.createElement('input');
-//        input.type = 'number';
-//        input.min = 1;
-//        input.dataset.index = idx;
-//        fragment.appendChild(input);
-//      }
-//      fragment.append(`${comp} `);
-//      if (i < components.length - 1) fragment.append('+ ');
-//    });
-//  }
-function renderSide(components, startIdx) {
-  components.forEach((comp, i) => {
-    const idx = startIdx + i;
-    
-    // 1. Create a span to hold the coefficient and chemical formula
-    const span = document.createElement('span');
+  function renderSide(components, startIdx) {
+    components.forEach((comp, i) => {
+      const idx = startIdx + i;
+      const span = document.createElement('span');
 
-    // 2. Add the Coefficient (Input or Static)
-    if (eq.coefficients[idx] !== null) {
-      span.append(`${eq.coefficients[idx]} `);
-    } else if (shownIndices.has(idx)) {
-      span.append(`${eq.correct[idx]} `);
-    } else {
-      const input = document.createElement('input');
-      input.type = 'number';
-      input.min = 1;
-      input.dataset.index = idx;
-      span.appendChild(input);
-    }
+      if (shownIndices.has(idx)) {
+        span.append(`${eq.correct[idx]} `);
+      } else {
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.dataset.index = idx;
+        span.appendChild(input);
+      }
 
-    // 3. Convert numbers in formulas to subscripts using Regex
-    // This looks for digits (\d+) and wraps them in <sub> tags
-    const formulaWithSubscripts = comp.replace(/(\d+)/g, '<sub>$1</sub>');
-    
-    // 4. Create a temporary element to hold the HTML formula
-    const formulaSpan = document.createElement('span');
-    formulaSpan.innerHTML = formulaWithSubscripts + " ";
-    span.appendChild(formulaSpan);
+      const formulaWithSubscripts = comp.replace(/(\d+)/g, '<sub>$1</sub>');
+      const formulaSpan = document.createElement('span');
+      formulaSpan.innerHTML = formulaWithSubscripts + " ";
+      span.appendChild(formulaSpan);
 
-    fragment.appendChild(span);
+      fragment.appendChild(span);
+      if (i < components.length - 1) fragment.append('+ ');
+    });
+  }
 
-    // 5. Add the plus sign if not the last item
-    if (i < components.length - 1) fragment.append('+ ');
-  });
-}
-  renderSide(eq.reactants,0);
+  renderSide(eq.reactants, 0);
   fragment.append(' → ');
-  renderSide(eq.products,eq.reactants.length);
-
+  renderSide(eq.products, eq.reactants.length);
   container.appendChild(fragment);
 }
 
-// Check answers
-function checkAnswers(eq) {
-  const inputs = document.querySelectorAll('#equation-container input');
-  inputs.forEach(input => {
-    const idx = parseInt(input.dataset.index);
-    if (parseInt(input.value) !== eq.correct[idx]) {
-      input.classList.add('wrong');
-      setTimeout(()=>input.classList.remove('wrong'),500);
-    } else {
-      input.classList.remove('wrong');
-    }
-  });
-}
-
-// Pick a random equation
 function nextEquation() {
   const idx = Math.floor(Math.random() * equations.length);
   currentEquation = equations[idx];
@@ -132,37 +117,24 @@ function nextEquation() {
 
 document.getElementById('next-btn').addEventListener('click', () => {
   if (!currentEquation) return;
-
   const inputs = document.querySelectorAll('#equation-container input');
   let allCorrect = true;
 
-  // 1. Check every input
   inputs.forEach(input => {
     const idx = parseInt(input.dataset.index);
-    const val = parseInt(input.value);
-
-    if (val !== currentEquation.correct[idx]) {
+    if (parseInt(input.value) !== currentEquation.correct[idx]) {
       allCorrect = false;
       input.classList.add('wrong');
-      // Remove red shake/border after a short delay
       setTimeout(() => input.classList.remove('wrong'), 500);
-    } else {
-      input.classList.remove('wrong');
     }
   });
 
-  // 2. Only go to the next equation if everything is right
-  if (allCorrect) {
-    // Optional: add a small success delay or alert
-    nextEquation();
-  } else {
-    console.log("Keep trying!");
-  }
+  if (allCorrect) nextEquation();
 });
 
-// Initial render
+// Initialize
+equations = parseCSV(csvData);
 nextEquation();
 </script>
-
 </body>
 </html>
