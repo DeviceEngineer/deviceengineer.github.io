@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Chemical Equation Balancing Game</title>
+<style>
+body { font-family: Arial, sans-serif; margin: 20px; }
+.equation { font-size: 18px; margin-bottom: 20px; }
+input { width: 50px; text-align: center; margin-right: 5px; }
+.wrong { border: 2px solid red; }
+button { margin-top: 20px; padding: 10px 20px; font-size: 16px; }
+#next-btn { display: none; }
+#stumped-btn { display: none; }
+progress { width: 100%; height: 20px; margin-bottom: 20px; }
+.correct { border: 2px solid green; background-color: #c8f7c5; transition: background-color 0.3s; }
+</style>
+</head>
+<body>
+
+<progress id="progress-bar" value="0" max="10"></progress>
+
+<div id="equation-container" class="equation"></div>
+
+<button id="submit-btn">Submit</button>
+<button id="stumped-btn">I'm Stumped</button>
+<button id="next-btn">Next</button>
+
+<script>
+const DEBUGGING = true; // set to false for normal gameplay
+
+fetch('question.csv')
+.then(response => response.text())
+.then(csvText => {
+    equations = parseCSV(csvText);
+    startGame();
+});
+
+let equations = [];
+let currentEquation = null;
+let failedAttempts = 0;
+let totalProblems = 10;
+let completed = 0;
+let results = [];
+let answered = false;
+
+// GET PARAMS
+const params = new URLSearchParams(window.location.search);
+const selectedDifficulty = params.getAll("difficulty");
+const numProblems = parseInt(params.get("problems")) || 10;
+totalProblems = numProblems;
+document.getElementById('progress-bar').max = totalProblems;
+
+// Parse CSV
+function parseCSV(csv) {
+    const lines = csv.split('\n').slice(1);
+    return lines.map(line => {
+        const cols = line.split(',');
+        if (cols.length < 20) return null;
+
+        const reactants = cols.slice(0, 5).map(s => s.replace('?', '').trim()).filter(s => s && s !== '→');
+        const products = cols.slice(5, 10).map(s => s.replace('?', '').trim()).filter(s => s && s !== '→');
+
+        const rawCorrect = [cols[10], cols[11], cols[12], cols[13], cols[15], cols[16], cols[17], cols[18]];
+        const correct = rawCorrect.map(c => parseInt(c)).filter(c => !isNaN(c));
+
+        const difficulty = parseFloat(cols[cols.length - 1]);
+        const avg = parseFloat(cols[19]) || 0;
+        const min = parseFloat(cols[20]) || 0;
+        const count = parseFloat(cols[21]) || 0;
+
+        return { reactants, products, correct, difficulty, avg, min, count };
+        
+    }).filter(eq => eq !== null);
+}
+
+function startGame() {
+    if (selectedDifficulty.length > 0) {
+        equations = equations.filter(eq => {
+            if (selectedDifficulty.includes("1") && eq.difficulty <= 7) return true;
+            if (selectedDifficulty.includes("2") && eq.difficulty > 7 && eq.difficulty <= 10) return true;
+            if (selectedDifficulty.includes("3") && eq.difficulty > 10) return true;
+            return false;
+        });
+    }
+
+    nextEquation();
+}
+
+function renderEquation(eq) {
+    const container = document.getElementById('equation-container');
+    container.innerHTML = '';
+    document.getElementById('stumped-btn').style.display = 'none';
+    document.getElementById('next-btn').style.display = 'none';
+    answered = false;
+
+    const totalCoeffs = eq.correct.length;
+    const shownIndices = new Set();
+
+    let showCount = 0;
+    if (eq.difficulty <= 7) showCount = totalCoeffs - 2;
+    else if (eq.difficulty <= 10) showCount = totalCoeffs - 3;
+    else showCount = totalCoeffs - 4;
+
+    showCount = Math.max(1, showCount);
+
+    while (shownIndices.size < showCount) {
+        const pick = Math.floor(Math.random() * totalCoeffs);
+        shownIndices.add(pick);
+    }
+
+    const fragment = document.createDocumentFragment();
+
+function renderSide(components, startIdx) {
+    components.forEach((comp, i) => {
+        const idx = startIdx + i;
+        const span = document.createElement('span');
+
+        if (shownIndices.has(idx)) {
+            span.append(`${eq.correct[idx]} `);
+        } else {
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.dataset.index = idx;
+            input.value = '';
+            input.min = 1;
+            input.max = 100;
+
+            input.addEventListener('input', () => {
+                input.classList.remove('wrong');
+                if (input.value === '') return;
+                const val = parseInt(input.value);
+                if (isNaN(val)) input.value = '';
+            });
+
+            input.addEventListener('blur', () => {
+                let val = parseInt(input.value);
+                if (isNaN(val) || val < 1) val = 1;
+                else if (val > 100) val = 100;
+                input.value = val;
+            });
+
+            input.addEventListener('focus', function handler() {
+                input.select();
+                input.removeEventListener('focus', handler);
+            });
+            span.appendChild(input);
+        }
+
+        // --- FIX IS HERE ---
+        // Only subscript numbers that follow a letter (e.g., H2, O2)
+        // This prevents leading coefficients in the string from being subscripted
+        const formula = comp.replace(/([a-zA-Z])(\d+)/g, '$1<sub>$2</sub>');
+        
+        const formulaSpan = document.createElement('span');
+        formulaSpan.innerHTML = formula + " ";
+        span.appendChild(formulaSpan);
+
+        fragment.appendChild(span);
+        if (i < components.length - 1) fragment.append('+ ');
+    });
+}
+
+    renderSide(eq.reactants, 0);
+    fragment.append(' → ');
+    renderSide(eq.products, eq.reactants.length);
+    if (DEBUGGING) {
+        const debugDiv = document.createElement('div');
+        const br = document.createElement('br');
+        debugDiv.style.marginTop = '15px';
+        debugDiv.style.padding = '10px';
+        debugDiv.style.border = '1px dashed #999';
+        debugDiv.style.backgroundColor = '#f9f9f9';
+        debugDiv.style.fontSize = '14px';
+
+        debugDiv.innerHTML = `
+            <strong>DEBUG INFO:</strong><br>
+            Correct Coefficients: ${eq.correct.join(', ')}<br>
+            Average Coefficient: ${eq.avg}<br>
+            Minimum Coefficient: ${eq.min}<br>
+            Count: ${eq.count}<br>
+            Difficulty: ${eq.difficulty}
+        `;
+
+        document.getElementById('equation-container').appendChild(debugDiv);
+        document.getElementById('equation-container').appendChild(br);
+    }
+    container.appendChild(fragment);
+}
+
+function fillCorrectAnswers() {
+    const inputs = document.querySelectorAll('#equation-container input');
+    inputs.forEach(input => {
+        const idx = parseInt(input.dataset.index);
+        input.value = currentEquation.correct[idx];
+        input.classList.remove('wrong');
+        input.disabled = true;
+    });
+}
+
+function nextEquation(skipped=false) {
+    document.getElementById('submit-btn').style.display = 'inline-block';
+    document.getElementById('stumped-btn').style.display = 'inline-block';
+    if (currentEquation) {
+        results.push({
+            attempts: failedAttempts,
+            skipped: skipped
+        });
+    }
+
+    if (completed >= totalProblems) {
+        finishGame();
+        return;
+    }
+
+    failedAttempts = 0;
+    completed++;
+    document.getElementById('progress-bar').value = completed;
+
+    const idx = Math.floor(Math.random() * equations.length);
+    currentEquation = equations[idx];
+
+    renderEquation(currentEquation);
+}
+
+function finishGame() {
+    const data = {
+        results: results,
+        total: totalProblems
+    };
+
+    const encoded = btoa(JSON.stringify(data));
+    window.location.href = "end.html?data=" + encoded;
+}
+
+// SUBMIT BUTTON
+document.getElementById('submit-btn').addEventListener('click', () => {
+    if (!currentEquation || answered) return;
+
+    const inputs = document.querySelectorAll('#equation-container input');
+    let allCorrect = true;
+
+    inputs.forEach(input => {
+        const idx = parseInt(input.dataset.index);
+        if (parseInt(input.value) !== currentEquation.correct[idx]) {
+            allCorrect = false;
+            input.classList.add('wrong');
+        } else {
+            input.classList.remove('wrong');
+        }
+    });
+
+    if (!allCorrect) {
+        failedAttempts++;
+
+        if (failedAttempts >= 7) {
+            document.getElementById('stumped-btn').style.display = 'inline-block';
+        }
+        return;
+    }
+
+    // ✅ CORRECT ANSWER FLOW
+    answered = true;
+
+    inputs.forEach(input => {
+        input.classList.add('correct');
+        input.disabled = true;
+    });
+
+    // Hide buttons during animation
+    document.getElementById('submit-btn').style.display = 'none';
+    document.getElementById('stumped-btn').style.display = 'none';
+
+    // Auto next after 2 seconds
+    setTimeout(() => {
+        nextEquation();
+    }, 1000);
+});
+
+// STUMPED BUTTON
+document.getElementById('stumped-btn').addEventListener('click', () => {
+    fillCorrectAnswers();
+    answered = true;
+    document.getElementById('next-btn').style.display = 'inline-block';
+});
+
+// NEXT BUTTON
+document.getElementById('next-btn').addEventListener('click', () => {
+    nextEquation(true);
+});
+</script>
+
+</body>
+</html>

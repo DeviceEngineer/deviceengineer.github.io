@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Game Results</title>
+<style>
+body {
+    font-family: Arial, sans-serif;
+    text-align: center;
+    margin: 40px;
+}
+
+h1 {
+    font-size: 40px;
+    margin-bottom: 20px;
+}
+
+.container {
+    display: inline-block;
+    text-align: left;
+    padding: 20px 30px;
+    border: 1px solid #ccc;
+    border-radius: 10px;
+    font-size: 18px;
+}
+
+.stat {
+    margin: 10px 0;
+}
+
+.grade {
+    font-size: 28px;
+    font-weight: bold;
+    margin-top: 20px;
+}
+
+button {
+    margin-top: 25px;
+    padding: 10px 20px;
+    font-size: 16px;
+    cursor: pointer;
+}
+</style>
+</head>
+<body>
+
+<h1>Results</h1>
+
+<div class="container" id="results-box">
+    Loading results...
+</div>
+<br>
+<button onclick="restart()">Play Again</button>
+
+<script>
+function getData() {
+    const params = new URLSearchParams(window.location.search);
+    const encoded = params.get("data");
+
+    if (!encoded) return null;
+
+    try {
+        const decoded = atob(encoded);
+        return JSON.parse(decoded);
+    } catch (e) {
+        return null;
+    }
+}
+
+function renderResults() {
+    const data = getData();
+    const box = document.getElementById("results-box");
+
+    if (!data || !data.results) {
+        box.innerHTML = "No results data found.";
+        return;
+    }
+
+    let totalAttempts = 0;
+    let skipped = 0;
+
+    data.results.forEach(r => {
+        totalAttempts += r.attempts;
+        if (r.skipped) skipped++;
+    });
+
+    const totalProblems = data.total || data.results.length;
+    const correct = totalProblems - skipped;
+    const accuracy = totalProblems > 0 ? Math.round((correct / totalProblems) * 100) : 0;
+
+    box.innerHTML = `
+        <div class="stat"><strong>Total Problems:</strong> ${totalProblems}</div>
+        <div class="stat"><strong>Total Attempts:</strong> ${totalAttempts}</div>
+        <div class="stat"><strong>Correct:</strong> ${correct}</div>
+        <div class="stat"><strong>Accuracy:</strong> ${accuracy}%</div>
+    `;
+}
+
+function restart() {
+    window.location.href = "/reaction-balancer/index.html"; // or your start page name
+}
+
+renderResults();
+</script>
+
+</body>
+</html>
