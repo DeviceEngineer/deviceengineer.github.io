@@ -9,36 +9,40 @@ body {
     text-align: center;
     margin: 40px;
 }
-
 h1 {
     font-size: 40px;
     margin-bottom: 20px;
 }
-
-.container {
-    display: inline-block;
-    text-align: left;
-    padding: 20px 30px;
-    border: 1px solid #ccc;
-    border-radius: 10px;
+table {
+    border-collapse: collapse;
+    margin: 20px auto;
     font-size: 18px;
 }
-
-.stat {
-    margin: 10px 0;
+th, td {
+    border: 1px solid #ccc;
+    padding: 10px 15px;
+    text-align: center;
 }
-
-.grade {
-    font-size: 28px;
-    font-weight: bold;
-    margin-top: 20px;
+input.correct-answer {
+    width: 50px;             /* Same as in-game */
+    height: 28px;             /* Optional: matches typical game height */
+    text-align: center;
+    font-size: 16px;          /* Match game font size */
+    font-weight: bold;        /* Game inputs are bold */
+    border: 2px solid #ccc;   /* Same thickness as in-game border */
+    border-radius: 4px;       /* Slightly rounded like game inputs */
+    background-color: #c8f7c5; /* Light green like correct answers in game */
+    margin-right: 5px;        /* Same spacing between inputs */
+    pointer-events: none;     /* Still uneditable */
 }
-
 button {
     margin-top: 25px;
     padding: 10px 20px;
     font-size: 16px;
     cursor: pointer;
+}
+.equation-container span {
+    margin-right: 5px;
 }
 </style>
 </head>
@@ -46,27 +50,85 @@ button {
 
 <h1>Results</h1>
 
-<div class="container" id="results-box">
+<div id="results-box">
     Loading results...
 </div>
+
 <br>
 <button onclick="restart()">Play Again</button>
 
 <script>
+
 function getData() {
     const params = new URLSearchParams(window.location.search);
-    const encoded = params.get("data");
+    const encoded = params.get('data');
 
     if (!encoded) return null;
 
     try {
-        const decoded = atob(encoded);
-        return JSON.parse(decoded);
-    } catch (e) {
+        const jsonStr = b64_to_utf8(encoded);
+        return JSON.parse(jsonStr);
+    } catch (err) {
+        console.error('Failed to decode results data:', err);
         return null;
     }
 }
 
+// UTF-8 safe Base64
+function b64_to_utf8(str) {
+    const binary = atob(str);
+    const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+}
+
+
+// Render chemical formula with subscripts
+function formatFormula(comp) {
+    return comp.replace(/([A-Za-z])(\d+)/g, '$1<sub>$2</sub>');
+}
+
+// Render coefficients as disabled textboxes
+function renderEquationInputs(reactants, products, coeffs) {
+    const container = document.createElement('div');
+    container.classList.add('equation-container');
+
+    reactants.forEach((comp, i) => {
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = coeffs[i];
+        input.disabled = true;
+        input.classList.add('correct-answer');
+        container.appendChild(input);
+
+        const span = document.createElement('span');
+        span.innerHTML = formatFormula(comp);
+        container.appendChild(span);
+
+        if (i < reactants.length - 1) container.appendChild(document.createTextNode('+ '));
+    });
+
+    container.appendChild(document.createTextNode(' → '));
+
+    products.forEach((comp, i) => {
+        const idx = reactants.length + i;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = coeffs[idx];
+        input.disabled = true;
+        input.classList.add('correct-answer');
+        container.appendChild(input);
+
+        const span = document.createElement('span');
+        span.innerHTML = formatFormula(comp);
+        container.appendChild(span);
+
+        if (i < products.length - 1) container.appendChild(document.createTextNode('+ '));
+    });
+
+    return container;
+}
+
+// Render the results table
 function renderResults() {
     const data = getData();
     const box = document.getElementById("results-box");
@@ -76,28 +138,48 @@ function renderResults() {
         return;
     }
 
-    let totalAttempts = 0;
-    let skipped = 0;
+    const table = document.createElement('table');
 
-    data.results.forEach(r => {
-        totalAttempts += r.attempts;
-        if (r.skipped) skipped++;
+    const header = document.createElement('tr');
+    header.innerHTML = `
+        <th>Problem #</th>
+        <th>Correct Answer(s)</th>
+        <th>Attempts</th>
+    `;
+    table.appendChild(header);
+
+    data.results.forEach((r, index) => {
+        const row = document.createElement('tr');
+
+        // Problem #
+        const tdNum = document.createElement('td');
+        tdNum.textContent = index + 1;
+        row.appendChild(tdNum);
+
+        // Equation with disabled textboxes
+        const tdEq = document.createElement('td');
+        if (r.correct && r.reactants && r.products) {
+            const eqDiv = renderEquationInputs(r.reactants, r.products, r.correct);
+            tdEq.appendChild(eqDiv);
+        } else {
+            tdEq.textContent = "N/A";
+        }
+        row.appendChild(tdEq);
+
+        // Attempts
+        const tdAttempts = document.createElement('td');
+        tdAttempts.textContent = r.attempts + (r.skipped ? ' S' : '');
+        row.appendChild(tdAttempts);
+
+        table.appendChild(row);
     });
 
-    const totalProblems = data.total || data.results.length;
-    const correct = totalProblems - skipped;
-    const accuracy = totalProblems > 0 ? Math.round((correct / totalProblems) * 100) : 0;
-
-    box.innerHTML = `
-        <div class="stat"><strong>Total Problems:</strong> ${totalProblems}</div>
-        <div class="stat"><strong>Total Attempts:</strong> ${totalAttempts}</div>
-        <div class="stat"><strong>Correct:</strong> ${correct}</div>
-        <div class="stat"><strong>Accuracy:</strong> ${accuracy}%</div>
-    `;
+    box.innerHTML = '';
+    box.appendChild(table);
 }
 
 function restart() {
-    window.location.href = "/reaction-balancer/index.html"; // or your start page name
+   window.location.href = "index.html";
 }
 
 renderResults();
